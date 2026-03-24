@@ -29,7 +29,7 @@ print("training begins")
 print("="*50)
 
 # Load data
-images, labels = load_data('data/healthy')
+images, labels = load_data('healthy')
 flattened_images = images.reshape(images.shape[0], -1)
 
 print(f"Loaded {len(flattened_images)} images")
