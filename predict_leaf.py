@@ -27,7 +27,6 @@ def prepare_image(image_path, target_size=(32, 32)):
     img = Image.open(image_path)
     
     # Convert to grayscale
-    img = img.convert('L')
     
     # Resize to 32x32
     img = img.resize(target_size)

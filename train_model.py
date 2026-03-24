@@ -62,10 +62,10 @@ class Neuron():
         return sigmoid(z)
 
 # Network architecture
-input_size = 32 * 32  # 1024
-hidden_size = 100  # Small hidden layer for speed
+input_size = 32 * 32 * 3 # 3072
+hidden_size = 50  # Small hidden layer for speed
 learning_rate = 0.1
-epochs = 10000  # Fewer epochs for quick test
+epochs = 50  # Fewer epochs for quick test
 
 # Create network
 hidden_layer = [Neuron(input_size) for _ in range(hidden_size)]
@@ -152,4 +152,4 @@ for img, label in zip(test_images[:5], test_labels[:5]):
     print(f"  Output: {final_output:.4f} → Predicted: {prediction_type:8} | Actual: {leaf_type:8} {result}")
 
 # Save the model
-save_trained_model(hidden_layer, output_neuron, 'leaf_model_v2.pkl')
+save_trained_model(hidden_layer, output_neuron, 'leaf_model_rgb_v1.pkl')

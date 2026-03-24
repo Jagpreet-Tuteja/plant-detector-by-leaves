@@ -7,7 +7,6 @@ print("Starting leaf preparation...")
 def prepare_image(img_path, target_size=(32,32)):
     img = Image.open(img_path)
     print(f" Original size: {img.size}")
-    img = img.convert('L')
     img = img.resize(target_size)
     print(f" Resized to: {img.size}")
     img_array = np.array(img)
