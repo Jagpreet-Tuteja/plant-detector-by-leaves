@@ -1,134 +1,144 @@
+"""
+Prediction module for leaf classification.
+Loads trained model and predicts on new images.
+"""
+
 import pickle
-import math
 import numpy as np
 from PIL import Image
 import sys
+import os
+from typing import Tuple
 
-def sigmoid(x):
-    return 1 / (1 + math.exp(-x))
 
-class Neuron:
-    def __init__(self, num_inputs):
-        self.weights = []
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    """Sigmoid activation function."""
+    return 1 / (1 + np.exp(-x))
+
+
+class VectorizedNeuron:
+    """Neuron for prediction (weights loaded from trained model)."""
+    
+    def __init__(self, num_inputs: int):
+        self.weights = None
         self.bias = 0.0
     
-    def forward(self, inputs):
-        z = 0
-        for i in range(len(inputs)):
-            z += self.weights[i] * inputs[i]
-        z += self.bias
+    def forward(self, inputs: np.ndarray) -> float:
+        """Forward pass: z = w·x + b, output = sigmoid(z)."""
+        z = np.dot(inputs, self.weights) + self.bias
         return sigmoid(z)
 
-def prepare_image(image_path, target_size=(32, 32)):
-    """
-    Process a new leaf image exactly like we did during training
-    """
-    # Load image
-    img = Image.open(image_path)
-    
-    # Convert to grayscale
-    
-    # Resize to 32x32
-    img = img.resize(target_size)
-    
-    # Convert to numpy array and normalize
-    img_array = np.array(img) / 255.0
-    
-    # Flatten to 1024 numbers
-    img_flattened = img_array.flatten()
-    
-    return img_flattened
 
-def load_model(filename='leaf_model.pkl'):
+def prepare_image(image_path: str, target_size: Tuple[int, int] = (32, 32)) -> np.ndarray:
     """
-    Load the trained model from file
+    Process image for prediction.
+    
+    Args:
+        image_path: Path to image file
+        target_size: Desired size (height, width)
+    
+    Returns:
+        Flattened normalized image array
+    """
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize(target_size)
+    img_array = np.array(img, dtype=np.float32) / 255.0
+    return img_array.flatten()
+
+
+def load_model(filename: str = "leaf_model_refactored.pkl") -> Tuple[list, VectorizedNeuron]:
+    """
+    Load trained model from file.
+    
+    Args:
+        filename: Path to saved model (.pkl)
+    
+    Returns:
+        Tuple of (hidden_layer list, output_neuron)
     """
     with open(filename, 'rb') as f:
-        model_data = pickle.load(f)
+        data = pickle.load(f)
     
     # Rebuild hidden layer
     hidden_layer = []
-    for weights, bias in zip(model_data['hidden_weights'], model_data['hidden_biases']):
-        neuron = Neuron(len(weights))
-        neuron.weights = weights
-        neuron.bias = bias
-        hidden_layer.append(neuron)
+    for weights, bias in zip(data['hidden_weights'], data['hidden_biases']):
+        n = VectorizedNeuron(len(weights))
+        n.weights = weights
+        n.bias = bias
+        hidden_layer.append(n)
     
     # Rebuild output neuron
-    output_neuron = Neuron(len(model_data['output_weights']))
-    output_neuron.weights = model_data['output_weights']
-    output_neuron.bias = model_data['output_bias']
+    output = VectorizedNeuron(len(data['output_weights']))
+    output.weights = data['output_weights']
+    output.bias = data['output_bias']
     
-    print(f"✅ Model loaded successfully!")
-    print(f"   Hidden neurons: {len(hidden_layer)}")
-    print(f"   Input size: {len(hidden_layer[0].weights)} pixels")
-    
-    return hidden_layer, output_neuron
+    return hidden_layer, output
 
-def predict(image_path, hidden_layer, output_neuron):
+
+def predict(
+    image_path: str, 
+    hidden_layer: list, 
+    output_neuron: VectorizedNeuron,
+    target_size:Tuple[int,int]=(64,64)
+) -> Tuple[float, int]:
     """
-    Predict if a leaf is Parijat
+    Predict if leaf is Parijat.
+    
+    Args:
+        image_path: Path to leaf image
+        hidden_layer: Trained hidden layer neurons
+        output_neuron: Trained output neuron
+    
+    Returns:
+        Tuple of (confidence, prediction)
+            confidence: raw output (0-1)
+            prediction: 1 = Parijat, 0 = Other
     """
-    # Step 1: Process the image
-    print(f"Processing image: {image_path}")
-    img_flat = prepare_image(image_path)
-    
-    # Step 2: Forward pass through hidden layer
-    hidden_output = []
-    for neuron in hidden_layer:
-        hidden_output.append(neuron.forward(img_flat))
-    
-    # Step 3: Forward pass through output neuron
-    output = output_neuron.forward(hidden_output)
-    
-    # Step 4: Make decision
-    prediction = 1 if output > 0.5 else 0
-    
-    return output, prediction
+    img_flat = prepare_image(image_path,target_size=(64,64))
+    hidden_outputs = [n.forward(img_flat) for n in hidden_layer]
+    final_output = output_neuron.forward(np.array(hidden_outputs))
+    return final_output, 1 if final_output > 0.5 else 0
 
-# ============================================
-# Main - Use the model
-# ============================================
 
-if __name__ == "__main__":
-    print("="*50)
-    print("🌿 Parijat Leaf Detector 🌿")
-    print("="*50)
+def main():
+    print("=" * 50)
+    print("Parijat Leaf Detector")
+    print("=" * 50)
     
-    # Check if user provided an image path
+    # Get image path
     if len(sys.argv) > 1:
-        image_path = sys.argv[1]
+        img_path = sys.argv[1]
     else:
-        print("\n📸 Enter the path to your leaf photo:")
-        image_path = input("> ").strip()
+        img_path = input("\nEnter leaf photo path: ").strip()
+    
+    img_path = img_path.strip('"').strip("'")
+    
+    if not os.path.exists(img_path):
+        print(f"File not found: {img_path}")
+        sys.exit(1)
     
     try:
-        # Load the trained model
-        print("\n📂 Loading trained model...")
-        hidden_layer, output_neuron = load_model('leaf_model_v2.pkl')
+        # Load model
+        hidden, output = load_model(filename="traind_models/leaf_model_refactored_v1_rgb_64i_70h_20260327_205949.pkl")
         
-        # Make prediction
-        print("\n🔍 Analyzing leaf...")
-        confidence, prediction = predict(image_path, hidden_layer, output_neuron)
+        # Predict
+        confidence, prediction = predict(img_path, hidden, output,target_size=(64,64))
         
         # Show result
-        print("\n" + "="*50)
-        print("🌿 RESULT 🌿")
-        print("="*50)
-        
+        print("\n" + "=" * 50)
         if prediction == 1:
-            print(f"✅ This IS a Parijat leaf!")
+            print(f"✅ PARIJAT LEAF")
             print(f"   Confidence: {confidence*100:.1f}%")
         else:
-            print(f"❌ This is NOT a Parijat leaf")
+            print(f"❌ NOT PARIJAT")
             print(f"   Confidence: {(1-confidence)*100:.1f}%")
-        
-        print("="*50)
+        print("=" * 50)
         
     except FileNotFoundError:
-        print(f"\n❌ Error: Could not find file '{image_path}'")
-        print("   Make sure the path is correct!")
-        
+        print("Model file not found. Train the model first.")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
-        print("   Make sure you have trained the model first!")
+        print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    main()

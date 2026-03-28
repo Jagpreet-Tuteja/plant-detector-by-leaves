@@ -1,172 +1,132 @@
+"""
+Data preparation module for leaf classification.
+Loads and preprocesses images from folder structure.
+"""
+
 import os
-import cv2
-import numpy as np
+from PIL import Image
+import numpy as np 
+from typing import Tuple, List, Optional
+from datetime import datetime
 
-def load_data(folder_path):
-    images = []
-    labels = []
-    
-    for label, subfolder in enumerate(['parijat', 'other']):
-        path = os.path.join(folder_path, subfolder)
-        
-        for file in os.listdir(path):
-            img_path = os.path.join(path, file)
-            img = cv2.imread(img_path)
-            
-            if img is not None:
-                img = cv2.resize(img, (32, 32))
-                img = img / 255.0
-                images.append(img)
-                labels.append(label)
-    
-    return np.array(images), np.array(labels)
-import math
-import random
-import pickle  # You forgot to import this!
+def prepare_image(
+    img_path:str,
+    target_size:Tuple[int,int]
+    ) -> np.ndarray:
+    """
+    Load and preprocess a single image.
 
-print("="*50)
-print("training begins")
-print("="*50)
+    Args:
+        img_path: Path to image file
+        target_size: Desired output size (height, width)
 
-# Load data
-images, labels = load_data('healthy')
-flattened_images = images.reshape(images.shape[0], -1)
+    Return:
+        Normalized image array with values in [0,1], shape (H, W, 3)
+    """
+    img = Image.open(img_path).convert("RGB")
+    img = img.resize(target_size)
+    img_array = np.array(img, dtype=np.float32)/255.0
+    return img_array
 
-print(f"Loaded {len(flattened_images)} images")
-print(f"Parijat: {sum(labels)} | Other: {len(labels)-sum(labels)}")
+def load_data(
+    data_folder:str,
+    target_size:Tuple[int,int],
+    verbose: bool = False
+    ) -> Tuple[np.ndarray,np.ndarray]:
+    """
+    Load all images from subfolders with their labels.
 
-# Shuffle the data
-indices = np.random.permutation(len(flattened_images))
-flattened_images = flattened_images[indices]
-labels = labels[indices]
+    Folder structure expected:
+        data_folder/
+            parijat/    -> label 1
+            mango/  -> label 0
+            money-plant/ -> label 0
 
-
-
-
-# Split into train (80%) and test (20%)
-split = int(0.8 * len(flattened_images))
-train_images = flattened_images[:split]
-train_labels = labels[:split]
-test_images = flattened_images[split:]
-test_labels = labels[split:]
-
-print(f"Training: {len(train_images)} images")
-print(f"Testing: {len(test_images)} images")
-
-def sigmoid(x):
-    return 1/(1+math.exp(-x))
-
-def save_trained_model(hidden_layer, output_neuron, filename='leaf_model.pkl'):
-    model_data = {
-        'hidden_weights': [neuron.weights for neuron in hidden_layer],
-        'hidden_biases': [neuron.bias for neuron in hidden_layer],
-        'output_weights': output_neuron.weights,
-        'output_bias': output_neuron.bias
+    Args:
+        data_folder: Root folder contaning class subfolders
+        target_size: Desired image size
+        verboseL: If True, print loading progress (default False)
+    Returns:
+        Tuple of (images array, labels array)
+            images shape: (N, H, W, 3)
+            labels shape: (N,)
+    """
+    images: List[np.ndarray] = []
+    labels: List[int] = []
+    class_mapping = {
+        "parijat": 1,
+        "mango": 0,
+        "money-plant":0
     }
+
+    for class_name,label in class_mapping.items():
+        class_folder = os.path.join(data_folder,class_name)
+        if not os.path.exists(class_folder):
+            if verbose:
+                print(f"Folder not found: {class_folder}")
+            continue
+        if verbose:
+            print(f"Loading {class_name}...")
+
+        count = 0
+        for filename in os.listdir(class_folder):
+            if filename.lower().endswith(('.png','.jpeg','.jpg')):
+                img_path = os.path.join(class_folder,filename)
+                try:
+                    img_array=prepare_image(img_path,target_size)
+                    images.append(img_array)
+                    labels.append(label)
+                    count+=1
+                except Exception:
+                    # Silent skip on errors (production)
+                    continue
+        if verbose:
+            print(f"Loaded {count} images from {class_name}")
+
+    if verbose:
+        print(f"\n Total images loaded: {len(images)}")
+
+    return np.array(images,dtype=np.float32), np.array(labels, dtype=np.int32)
+
+def visualize_samples(
+    images: np.ndarray, 
+    labels: np.ndarray, 
+    num_samples: int = 9,
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Display sample images with their labels.
+    Only imports matplotlib when called (lazy loading).
     
-    with open(filename, 'wb') as f:
-        pickle.dump(model_data, f)
+    Args:
+        images: Array of images
+        labels: Array of labels
+        num_samples: Number of samples to display
+        save_path: If provided, save figure to path instead of showing
+    """
+    import matplotlib.pyplot as plt
     
-    print(f"\n✅ Model saved to {filename}")
-
-class Neuron():
-    def __init__(self, num_inputs):
-        self.weights = [random.uniform(-0.5, 0.5) for _ in range(num_inputs)]
-        self.bias = 0.0
+    fig, axes = plt.subplots(3, 3, figsize=(9, 9))
+    for i, ax in enumerate(axes.flat):
+        if i < num_samples and i < len(images):
+            ax.imshow(images[i])
+            ax.set_title("Parijat" if labels[i] == 1 else "Other")
+            ax.axis('off')
     
-    def forward(self, inputs):
-        z = 0
-        for i in range(len(inputs)):
-            z += self.weights[i] * inputs[i]
-        z += self.bias
-        return sigmoid(z)
-
-# Network architecture
-input_size = 32 * 32 * 3 # 3072
-hidden_size = 50  # Small hidden layer for speed
-learning_rate = 0.1
-epochs = 50  # Fewer epochs for quick test
-
-# Create network
-hidden_layer = [Neuron(input_size) for _ in range(hidden_size)]
-output_neuron = Neuron(hidden_size)
-
-print(f"\nNetwork: {input_size} inputs → {hidden_size} hidden → 1 output")
-print(f"Learning rate: {learning_rate}, Epochs: {epochs}")
-
-# Training
-print("\nTraining...")
-for epoch in range(epochs):
-    total_error = 0
+    plt.tight_layout()
     
-    for img, label in zip(train_images, train_labels):
-        # Forward pass
-        hidden_output = []
-        for hidden_neuron in hidden_layer:
-            hidden_output.append(hidden_neuron.forward(img))
-        
-        final_output = output_neuron.forward(hidden_output)
-        
-        # Error
-        error = label - final_output
-        total_error += error * error
-        
-        # Update output layer
-        for i in range(len(output_neuron.weights)):
-            grad = error * final_output * (1 - final_output) * hidden_output[i]
-            output_neuron.weights[i] += learning_rate * grad
-        
-        grad_bias = error * final_output * (1 - final_output) * 1
-        output_neuron.bias += learning_rate * grad_bias
-        
-        # Update hidden layer
-        for h_idx, hidden_neuron in enumerate(hidden_layer):
-            # Removed the print statement that was slowing things down
-            hidden_error = error * output_neuron.weights[h_idx]
-            hidden_out = hidden_output[h_idx]
-            
-            for i in range(len(hidden_neuron.weights)):
-                grad = hidden_error * hidden_out * (1 - hidden_out) * img[i]
-                hidden_neuron.weights[i] += learning_rate * grad
-            
-            grad_bias = hidden_error * hidden_out * (1 - hidden_out) * 1
-            hidden_neuron.bias += learning_rate * grad_bias
-    
-    # ✅ Fixed: Print once per epoch (outside inner loop)
-    if epoch % 10  == 0:
-        avg_error = total_error / len(train_images)
-        print(f"Epoch {epoch}: Avg Error = {avg_error:.6f}")
+    if save_path:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
 
-# Test
-print("\n" + "="*50) 
-correct = 0
-for img, label in zip(test_images, test_labels):
-    hidden_output = []
-    for hidden_neuron in hidden_layer:
-        hidden_output.append(hidden_neuron.forward(img))
-    final_output = output_neuron.forward(hidden_output)
-    
-    predicted = 1 if final_output > 0.5 else 0
-    if predicted == label:
-        correct += 1
 
-print(f"\nAccuracy: {correct}/{len(test_images)} = {correct/len(test_images)*100:.1f}%")
-
-# Show some predictions
-print("\n" + "="*50)
-print("Sample Predictions:")
-print("="*50)
-for img, label in zip(test_images[:5], test_labels[:5]):
-    hidden_output = []
-    for hidden_neuron in hidden_layer:
-        hidden_output.append(hidden_neuron.forward(img))
-    final_output = output_neuron.forward(hidden_output)
-    
-    predicted = 1 if final_output > 0.5 else 0
-    result = "✓" if predicted == label else "✗"
-    leaf_type = "Parijat" if label == 1 else "Other"
-    prediction_type = "Parijat" if predicted == 1 else "Other"
-    print(f"  Output: {final_output:.4f} → Predicted: {prediction_type:8} | Actual: {leaf_type:8} {result}")
-
-# Save the model
-save_trained_model(hidden_layer, output_neuron, 'leaf_model_rgb_v2.pkl')
+if __name__ == "__main__":
+    import os
+    os.makedirs("visuals", exist_ok=True)
+    images, labels = load_data("data/healthy",target_size=(258,258),verbose=True)
+    print(f"images: {images.shape}, labels: {labels.shape}")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = f"visuals/samples_{timestamp}.png"
+    visualize_samples(images, labels, save_path=save_path)
